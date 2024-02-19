@@ -21,16 +21,28 @@ namespace Files.App.Helpers
 
 		public static async Task CutItemAsync(IShellPage associatedInstance)
 		{
+			await CutCopyLogicAsync(associatedInstance, true);
+		}
+
+		public static async Task CopyItemAsync(IShellPage associatedInstance)
+		{
+			await CutCopyLogicAsync(associatedInstance, false);
+		}
+
+		private static async Task CutCopyLogicAsync(IShellPage associatedInstance, bool isCutAction)
+		{
 			var dataPackage = new DataPackage()
 			{
-				RequestedOperation = DataPackageOperation.Move
+				RequestedOperation = isCutAction ? DataPackageOperation.Move : DataPackageOperation.Copy
 			};
+
 			ConcurrentBag<IStorageItem> items = new();
 
 			if (associatedInstance.SlimContentPage.IsItemSelected)
 			{
 				// First, reset DataGrid Rows that may be in "cut" command mode
-				associatedInstance.SlimContentPage.ItemManipulationModel.RefreshItemsOpacity();
+				if (isCutAction)
+					associatedInstance.SlimContentPage.ItemManipulationModel.RefreshItemsOpacity();
 
 				var itemsCount = associatedInstance.SlimContentPage.SelectedItems!.Count;
 
@@ -55,7 +67,7 @@ namespace Files.App.Helpers
 						}
 
 						// FTP don't support cut, fallback to copy
-						if (listedItem is not FtpItem)
+						if (isCutAction && listedItem is not FtpItem)
 						{
 							_ = dispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
 							{
@@ -92,14 +104,14 @@ namespace Files.App.Helpers
 					{
 						string[] filePaths = associatedInstance.SlimContentPage.SelectedItems.Select(x => x.ItemPath).ToArray();
 
-						await FileOperationsHelpers.SetClipboard(filePaths, DataPackageOperation.Move);
+						await FileOperationsHelpers.SetClipboard(filePaths, isCutAction ? DataPackageOperation.Move : DataPackageOperation.Copy);
 
 						_statusCenterViewModel.RemoveItem(banner);
 
 						return;
 					}
 
-					associatedInstance.SlimContentPage.ItemManipulationModel.RefreshItemsOpacity();
+					if (isCutAction) associatedInstance.SlimContentPage.ItemManipulationModel.RefreshItemsOpacity();
 
 					_statusCenterViewModel.RemoveItem(banner);
 
@@ -118,102 +130,6 @@ namespace Files.App.Helpers
 
 			dataPackage.Properties.PackageFamilyName = Windows.ApplicationModel.Package.Current.Id.FamilyName;
 			dataPackage.SetStorageItems(items, false);
-			try
-			{
-				Clipboard.SetContent(dataPackage);
-			}
-			catch
-			{
-				dataPackage = null;
-			}
-		}
-
-		public static async Task CopyItemAsync(IShellPage associatedInstance)
-		{
-			var dataPackage = new DataPackage()
-			{
-				RequestedOperation = DataPackageOperation.Copy
-			};
-			ConcurrentBag<IStorageItem> items = new();
-
-			if (associatedInstance.SlimContentPage.IsItemSelected)
-			{
-				associatedInstance.SlimContentPage.ItemManipulationModel.RefreshItemsOpacity();
-
-				var itemsCount = associatedInstance.SlimContentPage.SelectedItems!.Count;
-
-				var banner = itemsCount > 50 ? StatusCenterHelper.AddCard_Prepare() : null;
-
-				try
-				{
-					if (banner is not null)
-					{
-						banner.Progress.EnumerationCompleted = true;
-						banner.Progress.ItemsCount = items.Count;
-						banner.Progress.ReportStatus(FileSystemStatusCode.InProgress);
-					}
-					await associatedInstance.SlimContentPage.SelectedItems.ToList().ParallelForEachAsync(async listedItem =>
-					{
-						if (banner is not null)
-						{
-							banner.Progress.AddProcessedItemsCount(1);
-							banner.Progress.Report();
-						}
-
-						if (listedItem is FtpItem ftpItem)
-						{
-							if (ftpItem.PrimaryItemAttribute is StorageItemTypes.File or StorageItemTypes.Folder)
-								items.Add(await ftpItem.ToStorageItem());
-						}
-						else if (listedItem.PrimaryItemAttribute == StorageItemTypes.File || listedItem is ZipItem)
-						{
-							var result = await associatedInstance.FilesystemViewModel.GetFileFromPathAsync(listedItem.ItemPath)
-								.OnSuccess(t => items.Add(t));
-
-							if (!result)
-								throw new IOException($"Failed to process {listedItem.ItemPath}.", (int)result.ErrorCode);
-						}
-						else
-						{
-							var result = await associatedInstance.FilesystemViewModel.GetFolderFromPathAsync(listedItem.ItemPath)
-								.OnSuccess(t => items.Add(t));
-
-							if (!result)
-								throw new IOException($"Failed to process {listedItem.ItemPath}.", (int)result.ErrorCode);
-						}
-					}, 10, banner?.CancellationToken ?? default);
-				}
-				catch (Exception ex)
-				{
-					if (ex.HResult == (int)FileSystemStatusCode.Unauthorized)
-					{
-						string[] filePaths = associatedInstance.SlimContentPage.SelectedItems.Select(x => x.ItemPath).ToArray();
-
-						await FileOperationsHelpers.SetClipboard(filePaths, DataPackageOperation.Copy);
-
-						_statusCenterViewModel.RemoveItem(banner);
-
-						return;
-					}
-
-					_statusCenterViewModel.RemoveItem(banner);
-
-					return;
-				}
-
-				_statusCenterViewModel.RemoveItem(banner);
-			}
-
-			var onlyStandard = items.All(x => x is StorageFile || x is StorageFolder || x is SystemStorageFile || x is SystemStorageFolder);
-			if (onlyStandard)
-				items = new ConcurrentBag<IStorageItem>(await items.ToStandardStorageItemsAsync());
-
-			if (!items.Any())
-				return;
-
-			dataPackage.Properties.PackageFamilyName = Windows.ApplicationModel.Package.Current.Id.FamilyName;
-			dataPackage.SetStorageItems(items, false);
-
 			try
 			{
 				Clipboard.SetContent(dataPackage);
