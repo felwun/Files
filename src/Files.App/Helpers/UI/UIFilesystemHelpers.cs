@@ -41,8 +41,7 @@ namespace Files.App.Helpers
 			if (associatedInstance.SlimContentPage.IsItemSelected)
 			{
 				// First, reset DataGrid Rows that may be in "cut" command mode
-				if (isCutAction)
-					associatedInstance.SlimContentPage.ItemManipulationModel.RefreshItemsOpacity();
+				associatedInstance.SlimContentPage.ItemManipulationModel.RefreshItemsOpacity();
 
 				var itemsCount = associatedInstance.SlimContentPage.SelectedItems!.Count;
 
@@ -111,7 +110,8 @@ namespace Files.App.Helpers
 						return;
 					}
 
-					if (isCutAction) associatedInstance.SlimContentPage.ItemManipulationModel.RefreshItemsOpacity();
+					if (isCutAction) 
+						associatedInstance.SlimContentPage.ItemManipulationModel.RefreshItemsOpacity();
 
 					_statusCenterViewModel.RemoveItem(banner);
 
